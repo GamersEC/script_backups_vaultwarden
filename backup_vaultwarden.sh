@@ -78,15 +78,11 @@ send_notif() {
     local message="<b>$status_icon $title</b>%0A%0A"
     message+="<b>Servidor:</b> <code>$HOST</code>%0A"
     message+="$body"
-    
-    # Codificar caracteres HTML para URL
-    message="${message//</%3C}"
-    message="${message//>/%3E}"
 
     if curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
          -d "chat_id=$CHAT_ID" \
          -d "parse_mode=HTML" \
-         -d "text=$message" > /dev/null 2>&1; then
+         --data-urlencode "text=$message" > /dev/null 2>&1; then
         log "INFO" "Notificación enviada: $title"
     else
         log "ERROR" "Fallo al enviar notificación a Telegram"
