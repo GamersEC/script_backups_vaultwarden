@@ -250,14 +250,6 @@ echo ""
 # ============================================================================
 print_info "[4/6] Aplicando tu configuración a la nueva versión de forma segura..."
 
-# Detectar si estamos en macOS (para sed -i compatible)
-if sed --version 2>&1 | grep -q "GNU sed"; then
-    SED_INPLACE="sed -i"
-else
-    # macOS y BSD requieren argumento vacío después de -i
-    SED_INPLACE="sed -i ''"
-fi
-
 # Escapar valores para uso seguro en sed
 TOKEN_ESCAPED=$(escape_sed "$TOKEN")
 CHAT_ID_ESCAPED=$(escape_sed "$CHAT_ID")
@@ -303,20 +295,44 @@ BEFORE_ARRAY="/tmp/before_array_$$.tmp"
 AFTER_ARRAY="/tmp/after_array_$$.tmp"
 ASSEMBLED="/tmp/assembled_$$.tmp"
 
-# Extraer la parte ANTES del array en el nuevo script
-awk '/^BACKUP_DESTINATIONS=\(/ {exit} {print}' "$TEMP_SCRIPT" > "$BEFORE_ARRAY"
-
-# Extraer la parte DESPUÉS del array en el nuevo script (incluyendo el cierre)
+# Extraer la parte ANTES del array (hasta la línea anterior a BACKUP_DESTINATIONS)
 awk '
-BEGIN { found=0; in_array=0 }
-/^BACKUP_DESTINATIONS=\(/ { in_array=1; next }
-in_array && /^\)/ { found=1; next }
-found { print }
+/^BACKUP_DESTINATIONS=\(/ { exit }
+{ print }
+' "$TEMP_SCRIPT" > "$BEFORE_ARRAY"
+
+# Extraer la parte DESPUÉS del array (desde la línea siguiente al cierre)
+# Esta lógica es más robusta y maneja correctamente el cierre del array
+awk '
+BEGIN { 
+    in_array = 0
+    array_closed = 0
+}
+# Detectar inicio del array
+/^BACKUP_DESTINATIONS=\(/ { 
+    in_array = 1
+    next
+}
+# Si estamos en el array y encontramos el cierre
+in_array && /^\)/ {
+    array_closed = 1
+    next
+}
+# Si estamos en el array pero no es el cierre, continuar
+in_array && !array_closed {
+    next
+}
+# Imprimir todo después del cierre del array
+array_closed {
+    print
+}
 ' "$TEMP_SCRIPT" > "$AFTER_ARRAY"
 
-# Ensamblar: ANTES + ARRAY_ANTIGUO + DESPUÉS
+# Ensamblar las 3 partes con saltos de línea apropiados
 cat "$BEFORE_ARRAY" > "$ASSEMBLED"
+echo "" >> "$ASSEMBLED"  # Línea en blanco antes del array para claridad
 cat "$ARRAY_TEMP" >> "$ASSEMBLED"
+echo "" >> "$ASSEMBLED"  # Línea en blanco después del array
 cat "$AFTER_ARRAY" >> "$ASSEMBLED"
 
 # Reemplazar el script temporal con la versión ensamblada
