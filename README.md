@@ -163,6 +163,97 @@ nano backup_vaultwarden.sh
 
 </details>
 
+## 🔄 Actualización del Script
+
+### Mantén tu instalación actualizada
+
+El actualizador preserva toda tu configuración mientras actualiza el script a la última versión:
+
+```bash
+bash <(curl -sSL https://raw.githubusercontent.com/GamersEC/script_backups_vaultwarden/main/update.sh)
+```
+
+**O si ya tienes el repositorio clonado:**
+
+```bash
+cd /ruta/al/script_backups_vaultwarden
+./update.sh
+```
+
+**¿Qué hace el actualizador?**
+
+1. ✅ **Extrae tu configuración actual**: TOKEN, CHAT_ID, directorios, destinos, etc.
+2. ✅ **Descarga la última versión** desde GitHub
+3. ✅ **Crea un backup** de tu versión actual (por si algo sale mal)
+4. ✅ **Aplica tu configuración** a la nueva versión
+5. ✅ **Valida la sintaxis** antes de instalar
+6. ✅ **Instala la nueva versión** preservando todos tus ajustes
+
+**Ventajas:**
+
+- 🚀 **Cero downt**: La actualización es instantánea
+- 🔒 **Sin pérdida de configuración**: Todo se preserva automáticamente
+- 💾 **Backup automático**: Tu versión anterior queda respaldada
+- ⚠️ **Seguro**: Si la nueva versión tiene errores, no se instala
+- ⏱️ **Rápido**: Actualización completa en segundos
+
+**Ejemplo de salida:**
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║        ACTUALIZADOR - SERVICIO DE BACKUPS VAULTWARDEN         ║
+╚═══════════════════════════════════════════════════════════════╝
+
+ℹ Script actual: /home/usuario/servicio_backups/backup_vaultwarden.sh
+ℹ Última modificación local: 2026-02-10
+
+[1/6] Extrayendo configuración actual...
+✓ Configuración extraída
+
+  • TOKEN: configurado
+  • CHAT_ID: configurado
+  • Frecuencia notificaciones: 3h
+  • Directorio base: /home/usuario/servicio_backups
+  • Directorio origen: /opt/vaultwarden/data
+  • Destinos: 3 configurados
+
+[2/6] Descargando nueva versión desde GitHub...
+✓ Nueva versión descargada
+
+[3/6] Creando respaldo de la versión actual...
+✓ Backup guardado: backup_vaultwarden.sh.backup.20260211_143025
+
+[4/6] Aplicando tu configuración a la nueva versión...
+✓ TOKEN aplicado
+✓ CHAT_ID aplicado
+✓ Frecuencia de notificaciones aplicada
+✓ Directorio base aplicado
+✓ Directorio origen aplicado
+✓ Destinos de backup aplicados
+
+[5/6] Validando nueva versión...
+✓ Sintaxis del script validada correctamente
+
+[6/6] Instalando nueva versión...
+✓ Script actualizado correctamente
+
+╔═══════════════════════════════════════════════════════════════╗
+║              ✓ ACTUALIZACIÓN COMPLETADA                       ║
+╚═══════════════════════════════════════════════════════════════╝
+```
+
+**Restaurar versión anterior (si es necesario):**
+
+Si algo no funciona con la nueva versión:
+
+```bash
+cd /home/usuario/servicio_backups
+# Buscar el backup más reciente
+ls -lt backup_vaultwarden.sh.backup.*
+# Restaurar
+cp backup_vaultwarden.sh.backup.20260211_143025 backup_vaultwarden.sh
+```
+
 ## ⚙️ Configuración de Destinos
 
 ### Formato del Array de Destinos
