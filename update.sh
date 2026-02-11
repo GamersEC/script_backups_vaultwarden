@@ -86,28 +86,124 @@ print_info "Iniciando actualización..."
 echo ""
 
 # ============================================================================
-# PASO 1: Extraer configuración actual
+# FUNCIONES AUXILIARES SEGURAS
 # ============================================================================
-print_info "[1/6] Extrayendo configuración actual..."
 
-TOKEN=$(grep '^TOKEN=' "$BACKUP_SCRIPT" | head -n1 | cut -d'=' -f2- | tr -d '"')
-CHAT_ID=$(grep '^CHAT_ID=' "$BACKUP_SCRIPT" | head -n1 | cut -d'=' -f2- | tr -d '"')
-HOTCOPY_HOURS=$(grep '^HOTCOPY_NOTIFICATION_HOURS=' "$BACKUP_SCRIPT" | head -n1 | cut -d'=' -f2)
-BASE_DIR=$(grep '^BASE_DIR=' "$BACKUP_SCRIPT" | head -n1 | cut -d'=' -f2- | tr -d '"')
-SOURCE_DIR=$(grep '^SOURCE_DIR=' "$BACKUP_SCRIPT" | head -n1 | cut -d'=' -f2- | tr -d '"')
+# Función para escapar caracteres especiales en sed
+# Maneja correctamente: & \ / | [ ] * $ ^ .
+escape_sed() {
+    local input="$1"
+    # Escapar \ primero para evitar doble escape
+    input="${input//\\/\\\\}"
+    # Escapar & (usado en el replacement de sed)
+    input="${input//&/\\&}"
+    # Escapar / (delimitador común de sed)
+    input="${input//\//\\/}"
+    # Escapar | (delimitador alternativo de sed)
+    input="${input//|/\\|}"
+    # Caracteres especiales de regex
+    input="${input//\[/\\[}"
+    input="${input//\]/\\]}"
+    input="${input//\*/\\*}"
+    input="${input//\./\\.}"
+    input="${input//\^/\\^}"
+    input="${input//\$/\\$}"
+    printf '%s' "$input"
+}
 
-# Extraer array de destinos (más complejo)
-DESTINATIONS_TEMP="/tmp/backup_destinations_$$.tmp"
-awk '/^BACKUP_DESTINATIONS=\(/,/^\)/' "$BACKUP_SCRIPT" > "$DESTINATIONS_TEMP"
+# Función para extraer variables de forma segura usando source
+extract_config_safe() {
+    local script_path="$1"
+    local extractor_script="/tmp/config_extractor_$$.sh"
+    
+    # Crear script extractor temporal
+    cat > "$extractor_script" << 'EXTRACTOR_EOF'
+#!/bin/bash
+# Deshabilitar set -e temporalmente para permitir source
+set +e
 
-print_success "Configuración extraída"
+# Source del script de backup (solo para leer variables)
+source "$1" 2>/dev/null || {
+    echo "ERROR_SOURCING"
+    exit 1
+}
+
+# Imprimir variables en formato seguro (cada una en su línea)
+echo "TOKEN=${TOKEN}"
+echo "CHAT_ID=${CHAT_ID}"
+echo "HOTCOPY_NOTIFICATION_HOURS=${HOTCOPY_NOTIFICATION_HOURS}"
+echo "BASE_DIR=${BASE_DIR}"
+echo "SOURCE_DIR=${SOURCE_DIR}"
+
+# Para el array BACKUP_DESTINATIONS, necesitamos un approach diferente
+# Lo extraeremos directamente del archivo
+EXTRACTOR_EOF
+
+    chmod +x "$extractor_script"
+    
+    # Ejecutar extractor y capturar salida
+    local output
+    output=$("$extractor_script" "$script_path" 2>/dev/null)
+    
+    if [[ "$output" == "ERROR_SOURCING" ]]; then
+        rm -f "$extractor_script"
+        return 1
+    fi
+    
+    # Parsear salida de forma segura
+    while IFS='=' read -r key value; do
+        case "$key" in
+            TOKEN) TOKEN="$value" ;;
+            CHAT_ID) CHAT_ID="$value" ;;
+            HOTCOPY_NOTIFICATION_HOURS) HOTCOPY_HOURS="$value" ;;
+            BASE_DIR) BASE_DIR="$value" ;;
+            SOURCE_DIR) SOURCE_DIR="$value" ;;
+        esac
+    done <<< "$output"
+    
+    rm -f "$extractor_script"
+    return 0
+}
+
+# ============================================================================
+# PASO 1: Extraer configuración actual (MÉTODO SEGURO)
+# ============================================================================
+print_info "[1/6] Extrayendo configuración actual de forma segura..."
+
+# Variables globales para la configuración
+TOKEN=""
+CHAT_ID=""
+HOTCOPY_HOURS=""
+BASE_DIR=""
+SOURCE_DIR=""
+
+# Extraer variables simples mediante source seguro
+if ! extract_config_safe "$BACKUP_SCRIPT"; then
+    print_warning "No se pudo hacer source del script, usando método alternativo..."
+    
+    # Fallback: extracción manual pero más robusta
+    TOKEN=$(awk -F'=' '/^TOKEN=/ {print $2; exit}' "$BACKUP_SCRIPT" | sed 's/^"//; s/"$//')
+    CHAT_ID=$(awk -F'=' '/^CHAT_ID=/ {print $2; exit}' "$BACKUP_SCRIPT" | sed 's/^"//; s/"$//')
+    HOTCOPY_HOURS=$(awk -F'=' '/^HOTCOPY_NOTIFICATION_HOURS=/ {print $2; exit}' "$BACKUP_SCRIPT")
+    BASE_DIR=$(awk -F'=' '/^BASE_DIR=/ {print $2; exit}' "$BACKUP_SCRIPT" | sed 's/^"//; s/"$//')
+    SOURCE_DIR=$(awk -F'=' '/^SOURCE_DIR=/ {print $2; exit}' "$BACKUP_SCRIPT" | sed 's/^"//; s/"$//')
+fi
+
+# Extraer array de destinos TAL CUAL (sin procesamiento)
+ARRAY_TEMP="/tmp/backup_array_$$.tmp"
+awk '/^BACKUP_DESTINATIONS=\(/,/^\)/' "$BACKUP_SCRIPT" > "$ARRAY_TEMP"
+
+# Contar destinos configurados
+DEST_COUNT=$(grep -c '"' "$ARRAY_TEMP" 2>/dev/null || echo 0)
+
+print_success "Configuración extraída de forma segura"
 echo ""
 print_info "  • TOKEN: ${TOKEN:+configurado}${TOKEN:-no configurado}"
 print_info "  • CHAT_ID: ${CHAT_ID:+configurado}${CHAT_ID:-no configurado}"
 print_info "  • Frecuencia notificaciones: ${HOTCOPY_HOURS}h"
 print_info "  • Directorio base: $BASE_DIR"
 print_info "  • Directorio origen: $SOURCE_DIR"
-print_info "  • Destinos: $(grep -c '"' "$DESTINATIONS_TEMP" || echo 0) configurados"
+print_info "  • Destinos: $DEST_COUNT configurados"
 echo ""
 
 # ============================================================================
@@ -120,7 +216,7 @@ if command -v curl &> /dev/null; then
         print_success "Nueva versión descargada"
     else
         print_error "Fallo la descarga con curl"
-        rm -f "$DESTINATIONS_TEMP"
+        rm -f "$ARRAY_TEMP"
         exit 1
     fi
 elif command -v wget &> /dev/null; then
@@ -128,12 +224,12 @@ elif command -v wget &> /dev/null; then
         print_success "Nueva versión descargada"
     else
         print_error "Fallo la descarga con wget"
-        rm -f "$DESTINATIONS_TEMP"
+        rm -f "$ARRAY_TEMP"
         exit 1
     fi
 else
     print_error "No se encontró curl ni wget"
-    rm -f "$DESTINATIONS_TEMP"
+    rm -f "$ARRAY_TEMP"
     exit 1
 fi
 
@@ -150,58 +246,87 @@ print_success "Backup guardado: $(basename "$BACKUP_FILE")"
 echo ""
 
 # ============================================================================
-# PASO 4: Aplicar configuración a nueva versión
+# PASO 4: Aplicar configuración a nueva versión (MÉTODO SEGURO)
 # ============================================================================
-print_info "[4/6] Aplicando tu configuración a la nueva versión..."
+print_info "[4/6] Aplicando tu configuración a la nueva versión de forma segura..."
 
-# Reemplazar TOKEN
+# Detectar si estamos en macOS (para sed -i compatible)
+if sed --version 2>&1 | grep -q "GNU sed"; then
+    SED_INPLACE="sed -i"
+else
+    # macOS y BSD requieren argumento vacío después de -i
+    SED_INPLACE="sed -i ''"
+fi
+
+# Escapar valores para uso seguro en sed
+TOKEN_ESCAPED=$(escape_sed "$TOKEN")
+CHAT_ID_ESCAPED=$(escape_sed "$CHAT_ID")
+BASE_DIR_ESCAPED=$(escape_sed "$BASE_DIR")
+SOURCE_DIR_ESCAPED=$(escape_sed "$SOURCE_DIR")
+
+# Reemplazar TOKEN (método seguro con delimitador #)
 if [[ -n "$TOKEN" ]]; then
-    sed -i "s|^TOKEN=.*|TOKEN=\"$TOKEN\"|" "$TEMP_SCRIPT"
+    sed -i.bak "s#^TOKEN=.*#TOKEN=\"$TOKEN_ESCAPED\"#" "$TEMP_SCRIPT" && rm -f "$TEMP_SCRIPT.bak"
     print_success "TOKEN aplicado"
 fi
 
-# Reemplazar CHAT_ID
+# Reemplazar CHAT_ID (método seguro con delimitador #)
 if [[ -n "$CHAT_ID" ]]; then
-    sed -i "s|^CHAT_ID=.*|CHAT_ID=\"$CHAT_ID\"|" "$TEMP_SCRIPT"
+    sed -i.bak "s#^CHAT_ID=.*#CHAT_ID=\"$CHAT_ID_ESCAPED\"#" "$TEMP_SCRIPT" && rm -f "$TEMP_SCRIPT.bak"
     print_success "CHAT_ID aplicado"
 fi
 
-# Reemplazar HOTCOPY_NOTIFICATION_HOURS
-sed -i "s|^HOTCOPY_NOTIFICATION_HOURS=.*|HOTCOPY_NOTIFICATION_HOURS=$HOTCOPY_HOURS|" "$TEMP_SCRIPT"
-print_success "Frecuencia de notificaciones aplicada"
+# Reemplazar HOTCOPY_NOTIFICATION_HOURS (numérico, sin escape necesario)
+if [[ -n "$HOTCOPY_HOURS" ]]; then
+    sed -i.bak "s#^HOTCOPY_NOTIFICATION_HOURS=.*#HOTCOPY_NOTIFICATION_HOURS=$HOTCOPY_HOURS#" "$TEMP_SCRIPT" && rm -f "$TEMP_SCRIPT.bak"
+    print_success "Frecuencia de notificaciones aplicada"
+fi
 
-# Reemplazar BASE_DIR
-sed -i "s|^BASE_DIR=.*|BASE_DIR=\"$BASE_DIR\"|" "$TEMP_SCRIPT"
-print_success "Directorio base aplicado"
+# Reemplazar BASE_DIR (método seguro con delimitador #)
+if [[ -n "$BASE_DIR" ]]; then
+    sed -i.bak "s#^BASE_DIR=.*#BASE_DIR=\"$BASE_DIR_ESCAPED\"#" "$TEMP_SCRIPT" && rm -f "$TEMP_SCRIPT.bak"
+    print_success "Directorio base aplicado"
+fi
 
-# Reemplazar SOURCE_DIR
-sed -i "s|^SOURCE_DIR=.*|SOURCE_DIR=\"$SOURCE_DIR\"|" "$TEMP_SCRIPT"
-print_success "Directorio origen aplicado"
+# Reemplazar SOURCE_DIR (método seguro con delimitador #)
+if [[ -n "$SOURCE_DIR" ]]; then
+    sed -i.bak "s#^SOURCE_DIR=.*#SOURCE_DIR=\"$SOURCE_DIR_ESCAPED\"#" "$TEMP_SCRIPT" && rm -f "$TEMP_SCRIPT.bak"
+    print_success "Directorio origen aplicado"
+fi
 
-# Reemplazar array de BACKUP_DESTINATIONS
-awk -v destinations="$(cat "$DESTINATIONS_TEMP")" '
-BEGIN { in_array=0 }
-/^BACKUP_DESTINATIONS=\(/ {
-    print destinations
-    in_array=1
-    next
-}
-in_array && /^\)/ {
-    in_array=0
-    next
-}
-in_array {
-    next
-}
-!in_array {
-    print
-}
-' "$TEMP_SCRIPT" > "$TEMP_SCRIPT.tmp"
+# ============================================================================
+# Inyección "quirúrgica" del array BACKUP_DESTINATIONS
+# ============================================================================
 
-mv "$TEMP_SCRIPT.tmp" "$TEMP_SCRIPT"
-print_success "Destinos de backup aplicados"
+# Archivos temporales para ensamblaje
+BEFORE_ARRAY="/tmp/before_array_$$.tmp"
+AFTER_ARRAY="/tmp/after_array_$$.tmp"
+ASSEMBLED="/tmp/assembled_$$.tmp"
 
-rm -f "$DESTINATIONS_TEMP"
+# Extraer la parte ANTES del array en el nuevo script
+awk '/^BACKUP_DESTINATIONS=\(/ {exit} {print}' "$TEMP_SCRIPT" > "$BEFORE_ARRAY"
+
+# Extraer la parte DESPUÉS del array en el nuevo script (incluyendo el cierre)
+awk '
+BEGIN { found=0; in_array=0 }
+/^BACKUP_DESTINATIONS=\(/ { in_array=1; next }
+in_array && /^\)/ { found=1; next }
+found { print }
+' "$TEMP_SCRIPT" > "$AFTER_ARRAY"
+
+# Ensamblar: ANTES + ARRAY_ANTIGUO + DESPUÉS
+cat "$BEFORE_ARRAY" > "$ASSEMBLED"
+cat "$ARRAY_TEMP" >> "$ASSEMBLED"
+cat "$AFTER_ARRAY" >> "$ASSEMBLED"
+
+# Reemplazar el script temporal con la versión ensamblada
+mv "$ASSEMBLED" "$TEMP_SCRIPT"
+
+# Limpiar archivos temporales de ensamblaje
+rm -f "$BEFORE_ARRAY" "$AFTER_ARRAY" "$ARRAY_TEMP"
+
+print_success "Destinos de backup aplicados (método quirúrgico)"
+
 echo ""
 
 # ============================================================================
