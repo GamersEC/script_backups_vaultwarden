@@ -1,4 +1,4 @@
-# Script de Backup Vaultwarden - Profesional
+# Script de Backup Vaultwarden
 
 Sistema completo de backups para Vaultwarden con cifrado AES-256, multi-destino configurable y notificaciones inteligentes por Telegram.
 

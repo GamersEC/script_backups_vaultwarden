@@ -101,7 +101,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_SCRIPT="$SCRIPT_DIR/backup_vaultwarden.sh"
 
 # URL del repositorio para auto-descarga (personalizar según tu repo)
-REPO_RAW_URL="https://raw.githubusercontent.com/GamersEC/script_backups_vaultwarden/main/setup.sh"
+REPO_RAW_URL="https://raw.githubusercontent.com/GamersEC/script_backups_vaultwarden/main"
 
 clear
 print_header
