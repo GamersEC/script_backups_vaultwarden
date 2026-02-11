@@ -97,7 +97,15 @@ install_package() {
 }
 
 # Variables globales
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Detectar si se ejecuta desde pipe (bash <(curl ...)) o como archivo normal
+if [[ "${BASH_SOURCE[0]}" =~ ^/dev/fd/ ]] || [[ -z "${BASH_SOURCE[0]}" ]]; then
+    # Ejecutado desde pipe, usar directorio actual
+    SCRIPT_DIR="$(pwd)"
+else
+    # Ejecutado como archivo, usar ubicación del script
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
 BACKUP_SCRIPT="$SCRIPT_DIR/backup_vaultwarden.sh"
 
 # URL del repositorio para auto-descarga (personalizar según tu repo)
@@ -141,11 +149,13 @@ if [[ ! -f "$BACKUP_SCRIPT" ]]; then
     echo ""
 fi
 
-# Verificar permisos de ejecución del script actual
-if [[ ! -x "${BASH_SOURCE[0]}" ]]; then
-    print_warning "El instalador no tiene permisos de ejecución"
-    print_info "Ejecuta: chmod +x setup.sh"
-    exit 1
+# Verificar permisos de ejecución del script actual (solo si NO se ejecuta desde pipe)
+if [[ ! "${BASH_SOURCE[0]}" =~ ^/dev/fd/ ]] && [[ -n "${BASH_SOURCE[0]}" ]]; then
+    if [[ ! -x "${BASH_SOURCE[0]}" ]]; then
+        print_warning "El instalador no tiene permisos de ejecución"
+        print_info "Ejecuta: chmod +x setup.sh"
+        exit 1
+    fi
 fi
 
 print_info "Este instalador configurará el servicio de backups de Vaultwarden"
